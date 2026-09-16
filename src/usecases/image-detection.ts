@@ -28,7 +28,8 @@ export function didExecuteImageGeneration(result: AgyResult): boolean {
       return true;
     }
   }
-  return /Generated image is saved at|!\[.*?\]\(file:\/\/\/.*?\.(?:png|jpg|jpeg|webp)\)/i.test(result.text);
+  const allText = [result.intermediateText, result.text].filter(Boolean).join("\n\n");
+  return /Generated image is saved at|!\[.*?\]\(file:\/\/\/.*?\.(?:png|jpg|jpeg|webp)\)/i.test(allText);
 }
 
 export async function detectAndSendGeneratedImages(
@@ -51,8 +52,9 @@ export async function detectAndSendGeneratedImages(
   const imagesToSend = new Set<string>();
   const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
-  // 1. Extract markdown image / file links from result.text
-  const fileMatches = result.text.matchAll(/(?:file:\/\/|['"])((\/[^\s'")]+)\.(png|jpg|jpeg|webp))(?:\b|['"]|\))/gi);
+  // 1. Extract markdown image / file links from all turn text
+  const allText = [result.intermediateText, result.text].filter(Boolean).join("\n\n");
+  const fileMatches = allText.matchAll(/(?:file:\/\/|['"])((\/[^\s'")]+)\.(png|jpg|jpeg|webp))(?:\b|['"]|\))/gi);
   const effectiveWorkspace = effectiveWorkspaceFor(context, chatId);
   for (const match of fileMatches) {
     const fullPath = `${match[2]}.${match[3]}`;

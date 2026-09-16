@@ -355,7 +355,8 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
       }
     }
     await detectAndSendGeneratedImages(context, job.chatId, result, effectiveConvId, startedAt);
-    const mediaFiles = await findReferencedMediaFiles(result.text, effectiveWorkspace);
+    const allTurnText = [result.intermediateText, result.text].filter(Boolean).join("\n\n");
+    const mediaFiles = await findReferencedMediaFiles(allTurnText, effectiveWorkspace);
     for (const mediaPath of mediaFiles) {
       const ext = path.extname(mediaPath).toLowerCase();
       const isPhoto = [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
