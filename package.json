@@ -35,6 +35,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "watch": "tsc --watch",
+    "reload": "npm run build && systemctl --user restart agy-telegram.service",
     "start": "node dist/cli.js",
     "test": "tsx --test test/*.test.ts",
     "pack:check": "npm pack --dry-run",
