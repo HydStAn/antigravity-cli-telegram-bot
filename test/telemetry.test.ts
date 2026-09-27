@@ -281,3 +281,18 @@ test("TC-TEL-11: run duration vs session duration isolation", () => {
   assert.match(block, /• \*\*Cumulative usage:\*\* 171k tokens consumed · 3 turns · 2m 0s total/);
 });
 
+test("TC-TEL-12: replyWithFormattedResponse returns SentMessage metadata for in-place edits", async () => {
+  const { replyWithFormattedResponse } = await import("../src/ui/reply.js");
+  const mockContext = {
+    config: { telegram: { maxMessageChars: 1000 } },
+    telegram: {
+      sendMessage: async (_chatId: any, _text: string) => ({ message_id: 4242 }),
+    },
+  } as any;
+
+  const sent = await replyWithFormattedResponse(mockContext, 12345, "Hello world");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].message_id, 4242);
+  assert.equal(sent[0].parseMode, "HTML");
+});
+

@@ -11,7 +11,7 @@ import { buildTelemetryQuoteBlock } from "../domain/telemetry.js";
 import { createMainKeyboard } from "../keyboards.js";
 import { getActiveModels } from "../models.js";
 import { parseContextMetrics, parseTokenValue, runPtyCommand } from "../pty-runner.js";
-import { findReferencedMediaFiles } from "../telegram.js";
+import { findReferencedMediaFiles, formatTelegramHtml } from "../telegram.js";
 import { replyWithFormattedResponse, replyWithHtml } from "../ui/reply.js";
 import { refreshActiveMenu } from "../ui/screens.js";
 import { detectAndSendGeneratedImages } from "./image-detection.js";
@@ -426,32 +426,10 @@ export class SubagentPoller {
       return { tokens: resolvedTokens, max: resolvedMax, pct: resolvedPct, growthTokens };
     };
 
-    if (telemetryMode === "inline" && cleanText) {
-      await probeContext();
-      const resolved = getResolvedActiveMetrics();
-      const telemetryBlock = buildTelemetryQuoteBlock({
-        contextGrowthTokens: resolved.growthTokens,
-        activeTokens: resolved.tokens,
-        maxTokens: resolved.max,
-        contextPercentage: resolved.pct,
-        sessionUsageTotals: cumulativeUsage,
-        sessionTurns: stepCount,
-        inputTokens: result.usage?.input_tokens,
-        cacheReadTokens: result.usage?.cache_read_tokens,
-        thinkingTokens: result.usage?.thinking_tokens,
-        outputTokens: result.usage?.output_tokens,
-        toolCalls: result.toolCalls,
-        durationMs: result.durationMs || 0,
-        sessionDurationMs: result.sessionDurationMs,
-        model: result.model || params.settings.model || "",
-      });
-      cleanText = `${cleanText}\n\n${telemetryBlock}`;
-    }
-
     const isSeparateTelemetry =
       (telemetryMode === "message" || telemetryMode === "separate") && Boolean(cleanText);
 
-    await replyWithFormattedResponse(
+    const sentMessages = await replyWithFormattedResponse(
       context,
       params.chatId,
       cleanText,
@@ -483,6 +461,43 @@ export class SubagentPoller {
         telemetryBlock,
         createMainKeyboard(settingsFor(context, params.chatId))
       );
+    } else if (telemetryMode === "inline" && cleanText && sentMessages.length > 0) {
+      const lastMsg = sentMessages[sentMessages.length - 1];
+      await probeContext();
+      const resolved = getResolvedActiveMetrics();
+      const telemetryBlock = buildTelemetryQuoteBlock({
+        contextGrowthTokens: resolved.growthTokens,
+        activeTokens: resolved.tokens,
+        maxTokens: resolved.max,
+        contextPercentage: resolved.pct,
+        sessionUsageTotals: cumulativeUsage,
+        sessionTurns: stepCount,
+        inputTokens: result.usage?.input_tokens,
+        cacheReadTokens: result.usage?.cache_read_tokens,
+        thinkingTokens: result.usage?.thinking_tokens,
+        outputTokens: result.usage?.output_tokens,
+        toolCalls: result.toolCalls,
+        durationMs: result.durationMs || 0,
+        sessionDurationMs: result.sessionDurationMs,
+        model: result.model || params.settings.model || "",
+      });
+      const quoteHtml = formatTelegramHtml(telemetryBlock);
+      const updatedText = lastMsg.parseMode === "HTML"
+        ? `${lastMsg.text}\n\n${quoteHtml}`
+        : `${lastMsg.text}\n\n${telemetryBlock}`;
+      if (updatedText.length <= (context.config.telegram.maxMessageChars || 3900)) {
+        await context.telegram.editMessageText(
+          params.chatId,
+          lastMsg.message_id,
+          updatedText,
+          undefined,
+          lastMsg.parseMode
+        ).catch((editErr) => {
+          console.debug(`[Telemetry] In-place edit failed: ${(editErr as Error).message}`);
+        });
+      } else {
+        await replyWithFormattedResponse(context, params.chatId, telemetryBlock);
+      }
     }
   }
 }
