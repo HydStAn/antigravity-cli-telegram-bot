@@ -486,11 +486,13 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
 
     if (shouldSendText) {
       const isSeparateTelemetry = (telemetryMode === "message" || telemetryMode === "separate") && Boolean(result.text);
+      const isInlineTelemetry = telemetryMode === "inline" && Boolean(result.text);
+      const keyboardNeeded = !isSeparateTelemetry && !isInlineTelemetry;
       const sentMessages = await replyWithFormattedResponse(
         context,
         job.chatId,
         responseBody,
-        isSeparateTelemetry ? undefined : createMainKeyboard(settingsFor(context, job.chatId))
+        keyboardNeeded ? createMainKeyboard(settingsFor(context, job.chatId)) : undefined
       );
 
       if (isSeparateTelemetry) {
