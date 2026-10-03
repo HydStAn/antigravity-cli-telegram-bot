@@ -8,6 +8,8 @@ import {
   isStillWaitingTurn,
   SubagentPoller,
 } from "../src/usecases/subagent-poller.js";
+import { findReferencedMediaFiles } from "../src/telegram.js";
+import { didExecuteImageGeneration } from "../src/usecases/image-detection.js";
 import type { AgyResult } from "../src/types.js";
 
 test("checkForSubagentMessages returns false when directory does not exist", () => {
@@ -109,4 +111,35 @@ test("SubagentPoller tracks, checks, and cancels active polling per chat", () =>
   const poller = new SubagentPoller();
   assert.equal(poller.isPolling(12345), false);
   assert.equal(poller.cancelPolling(12345), false);
+});
+
+test("detects media and generated images appearing solely inside intermediateText", async () => {
+  const tmpImg = path.join(os.tmpdir(), `subagent-poll-img-${Date.now()}.png`);
+  fs.writeFileSync(tmpImg, "fake png content");
+  try {
+    const intermediateResult: AgyResult = {
+      text: "The tasks have completed successfully.",
+      intermediateText: `Agent executed tool. Generated image is saved at ![Output](${tmpImg})`,
+      parsed: null,
+      events: [],
+      conversationId: "conv-sub-1",
+      model: "gemini-3.8-flash",
+      usage: null,
+      durationMs: 1000,
+      numTurns: 2,
+      toolCalls: 1,
+      status: "SUCCESS",
+    };
+
+    // Verify didExecuteImageGeneration catches image pattern in intermediateText
+    assert.equal(didExecuteImageGeneration(intermediateResult), true);
+
+    // Verify findReferencedMediaFiles on combined turns detects the image file
+    const allTurnText = [intermediateResult.intermediateText, intermediateResult.text].filter(Boolean).join("\n\n");
+    const media = await findReferencedMediaFiles(allTurnText);
+    assert.equal(media.length, 1);
+    assert.equal(media[0], tmpImg);
+  } finally {
+    fs.rmSync(tmpImg, { force: true });
+  }
 });

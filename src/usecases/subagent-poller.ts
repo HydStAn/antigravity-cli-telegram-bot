@@ -329,7 +329,8 @@ export class SubagentPoller {
       Date.now() - (result.durationMs || 0)
     );
 
-    const mediaFiles = await findReferencedMediaFiles(result.text, params.effectiveWorkspace);
+    const allTurnText = [result.intermediateText, result.text].filter(Boolean).join("\n\n");
+    const mediaFiles = await findReferencedMediaFiles(allTurnText, params.effectiveWorkspace);
     for (const mediaPath of mediaFiles) {
       const ext = path.extname(mediaPath).toLowerCase();
       const isPhoto = [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
