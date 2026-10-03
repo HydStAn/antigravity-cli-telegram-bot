@@ -12,7 +12,7 @@ import { parseContext, parseContextMetrics, parseCredits, parseUsageQuota, parse
 import { settingsFor } from "../domain/settings.js";
 import { addUsage, formatTokenCount } from "../domain/usage-math.js";
 import { buildTelemetryQuoteBlock } from "../domain/telemetry.js";
-import { reply, replyWithFormattedResponse, replyWithHtml } from "../ui/reply.js";
+import { reply, replyWithFormattedResponse, replyWithHtml, type SentMessage } from "../ui/reply.js";
 import { usageText } from "../ui/messages.js";
 import { contextActionsKeyboard } from "../ui/inline-keyboards.js";
 import { refreshActiveMenu } from "../ui/screens.js";
@@ -502,28 +502,6 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
       formattedText = formattedText ? `${formattedText}${notice}` : notice.trim();
     }
 
-    if (telemetryMode === "inline" && result.text) {
-      await probeContext();
-      const resolved = getResolvedActiveMetrics();
-      const telemetryBlock = buildTelemetryQuoteBlock({
-        contextGrowthTokens: resolved.growthTokens,
-        activeTokens: resolved.tokens,
-        maxTokens: resolved.max,
-        contextPercentage: resolved.pct,
-        sessionUsageTotals: cumulativeUsage,
-        sessionTurns: stepCount,
-        inputTokens: result.usage?.input_tokens,
-        cacheReadTokens: result.usage?.cache_read_tokens,
-        thinkingTokens: result.usage?.thinking_tokens,
-        outputTokens: result.usage?.output_tokens,
-        toolCalls: result.toolCalls,
-        durationMs: result.durationMs || (Date.now() - startedAt),
-        sessionDurationMs: result.sessionDurationMs,
-        model: result.model || settings.model || "",
-      });
-      formattedText = formattedText ? `${formattedText}\n\n${telemetryBlock}` : telemetryBlock;
-    }
-
     const responseBody = formattedText;
 
     const ttsMode = settings.ttsMode || context.config.tts?.mode || "off";
@@ -536,11 +514,12 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
 
     if (shouldSendText) {
       const isSeparateTelemetry = (telemetryMode === "message" || telemetryMode === "separate") && Boolean(result.text);
-      await replyWithFormattedResponse(
+      const keyboardNeeded = !isSeparateTelemetry;
+      const sentMessages = await replyWithFormattedResponse(
         context,
         job.chatId,
         responseBody,
-        isSeparateTelemetry ? undefined : createMainKeyboard(settingsFor(context, job.chatId))
+        keyboardNeeded ? createMainKeyboard(settingsFor(context, job.chatId)) : undefined
       );
 
       if (isSeparateTelemetry) {
@@ -568,6 +547,43 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
           telemetryBlock,
           createMainKeyboard(settingsFor(context, job.chatId))
         );
+      } else if (telemetryMode === "inline" && result.text && sentMessages.length > 0) {
+        const lastMsg = sentMessages[sentMessages.length - 1];
+        await probeContext();
+        const resolved = getResolvedActiveMetrics();
+        const telemetryBlock = buildTelemetryQuoteBlock({
+          contextGrowthTokens: resolved.growthTokens,
+          activeTokens: resolved.tokens,
+          maxTokens: resolved.max,
+          contextPercentage: resolved.pct,
+          sessionUsageTotals: cumulativeUsage,
+          sessionTurns: stepCount,
+          inputTokens: result.usage?.input_tokens,
+          cacheReadTokens: result.usage?.cache_read_tokens,
+          thinkingTokens: result.usage?.thinking_tokens,
+          outputTokens: result.usage?.output_tokens,
+          toolCalls: result.toolCalls,
+          durationMs: result.durationMs || (Date.now() - startedAt),
+          sessionDurationMs: result.sessionDurationMs,
+          model: result.model || settings.model || "",
+        });
+        const quoteHtml = formatTelegramHtml(telemetryBlock);
+        const updatedText = lastMsg.parseMode === "HTML"
+          ? `${lastMsg.text}\n\n${quoteHtml}`
+          : `${lastMsg.text}\n\n${telemetryBlock}`;
+        if (updatedText.length <= (context.config.telegram.maxMessageChars || 3900)) {
+          await context.telegram.editMessageText(
+            job.chatId,
+            lastMsg.message_id,
+            updatedText,
+            undefined,
+            lastMsg.parseMode
+          ).catch((editErr) => {
+            console.debug(`[Telemetry] In-place edit failed: ${(editErr as Error).message}`);
+          });
+        } else {
+          await replyWithFormattedResponse(context, job.chatId, telemetryBlock);
+        }
       }
     }
 
