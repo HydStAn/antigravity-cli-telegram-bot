@@ -412,6 +412,33 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
     if (progressMessage) {
       if (isProgressDeleted) {
         await context.telegram.deleteMessage(job.chatId, progressMessage.message_id).catch(() => undefined);
+      } else if (telemetryMode === "progress") {
+        await probeContext();
+        const resolved = getResolvedActiveMetrics();
+        const telemetryBlock = buildTelemetryQuoteBlock({
+          contextGrowthTokens: resolved.growthTokens,
+          activeTokens: resolved.tokens,
+          maxTokens: resolved.max,
+          contextPercentage: resolved.pct,
+          sessionUsageTotals: cumulativeUsage,
+          sessionTurns: stepCount,
+          inputTokens: result.usage?.input_tokens,
+          cacheReadTokens: result.usage?.cache_read_tokens,
+          thinkingTokens: result.usage?.thinking_tokens,
+          outputTokens: result.usage?.output_tokens,
+          toolCalls: result.toolCalls,
+          durationMs: result.durationMs || (Date.now() - startedAt),
+          sessionDurationMs: result.sessionDurationMs,
+          model: result.model || settings.model || "",
+        });
+        const quoteHtml = formatTelegramHtml(telemetryBlock);
+        await context.telegram.editMessageText(
+          job.chatId,
+          progressMessage.message_id,
+          `${wsNotice}${quoteHtml}`,
+          undefined,
+          "HTML"
+        ).catch(() => undefined);
       } else {
         const mode = context.config.telegram.progressMode || "full";
         if (mode === "compact") {
@@ -486,8 +513,7 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
 
     if (shouldSendText) {
       const isSeparateTelemetry = (telemetryMode === "message" || telemetryMode === "separate") && Boolean(result.text);
-      const isInlineTelemetry = telemetryMode === "inline" && Boolean(result.text);
-      const keyboardNeeded = !isSeparateTelemetry && !isInlineTelemetry;
+      const keyboardNeeded = !isSeparateTelemetry;
       const sentMessages = await replyWithFormattedResponse(
         context,
         job.chatId,
@@ -557,33 +583,6 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
         } else {
           await replyWithFormattedResponse(context, job.chatId, telemetryBlock);
         }
-      } else if (telemetryMode === "progress" && progressMessage && !isProgressDeleted) {
-        await probeContext();
-        const resolved = getResolvedActiveMetrics();
-        const telemetryBlock = buildTelemetryQuoteBlock({
-          contextGrowthTokens: resolved.growthTokens,
-          activeTokens: resolved.tokens,
-          maxTokens: resolved.max,
-          contextPercentage: resolved.pct,
-          sessionUsageTotals: cumulativeUsage,
-          sessionTurns: stepCount,
-          inputTokens: result.usage?.input_tokens,
-          cacheReadTokens: result.usage?.cache_read_tokens,
-          thinkingTokens: result.usage?.thinking_tokens,
-          outputTokens: result.usage?.output_tokens,
-          toolCalls: result.toolCalls,
-          durationMs: result.durationMs || (Date.now() - startedAt),
-          sessionDurationMs: result.sessionDurationMs,
-          model: result.model || settings.model || "",
-        });
-        const quoteHtml = formatTelegramHtml(telemetryBlock);
-        await context.telegram.editMessageText(
-          job.chatId,
-          progressMessage.message_id,
-          `${wsNotice}${quoteHtml}`,
-          undefined,
-          "HTML"
-        ).catch(() => undefined);
       }
     }
 

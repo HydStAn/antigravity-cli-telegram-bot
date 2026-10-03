@@ -428,8 +428,7 @@ export class SubagentPoller {
 
     const isSeparateTelemetry =
       (telemetryMode === "message" || telemetryMode === "separate") && Boolean(cleanText);
-    const isInlineTelemetry = telemetryMode === "inline" && Boolean(cleanText);
-    const keyboardNeeded = !isSeparateTelemetry && !isInlineTelemetry;
+    const keyboardNeeded = !isSeparateTelemetry;
 
     const sentMessages = await replyWithFormattedResponse(
       context,
