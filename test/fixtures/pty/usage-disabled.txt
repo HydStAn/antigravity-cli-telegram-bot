@@ -1,0 +1,10 @@
+Models & Quota
+Account: ops@example.com
+
+GEMINI MODELS
+Weekly Limit Remaining
+██████████████░░░░ 42% remaining
+Refreshes in 90h 10m
+
+Five Hour Limit Remaining
+Disabled

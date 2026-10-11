@@ -1,0 +1,15 @@
+/context Visualize current context usage
+└ Context Usage
+◉ ◉ ◉     Gemini 3.6 Flash (High) · 146.3k/1.0M tokens
+□ □ □     (14.0%)
+□ □ □     Token usage by category
+◉ User messages: 533 tokens (0.1%)
+◉ Agent responses: 97.5k tokens (9.3%)
+◉ Tool calls: 12.1k tokens (1.2%)
+□ Free space: 902.2k (86.0%)
+Checkpoints (3) · /rewind
+└ Checkpoint 3 (active, in context): steps 117–304
+Artifact files · /artifact
+└ ~/.gemini/brain/plan.md: 1.6k tokens
+Related: /artifact
+esc to cancel

@@ -721,7 +721,11 @@ src/
 │
 ├── domain/                     # Business Logic & Entities
 │   ├── settings.ts             # Per-chat session settings resolution & defaults
-│   └── usage-math.ts           # Token arithmetic, percentages, and progress bars
+│   ├── usage-math.ts           # Token arithmetic, percentages, and progress bars
+│   ├── report-text.ts          # ANSI scrubbing, duration & token parsing for PTY reports
+│   ├── quota-report.ts         # /usage Models & Quota extraction and HTML rendering
+│   ├── credits-report.ts       # /credits balance & purchase-link extraction and rendering
+│   └── context-report.ts       # /context panel extraction, rendering & telemetry metrics
 │
 ├── infra/                      # Infrastructure & Environment Hardening
 │   ├── instance-lock.ts        # Atomic PID-based instance lock to prevent duplicates

@@ -1,0 +1,23 @@
+❯ /usage
+  /usage  Models & Quota
+  /mcp    Manage MCP servers
+
+└ Models & Quota
+
+Account: ardiannurcahya436@gmail.com
+
+GEMINI MODELS
+Weekly Limit Remaining
+██████████████░░░░ 94% remaining
+Refreshes in 151h 15m
+
+Five Hour Limit Remaining
+████████████░░░░░░ 81% remaining
+Refreshes in 1h 52m
+
+CLAUDE AND GPT MODELS
+Weekly Limit Remaining
+██████████████████ 100% Quota available
+
+Five Hour Limit Remaining
+██████████████████ 100% Quota available

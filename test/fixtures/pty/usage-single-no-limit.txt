@@ -1,0 +1,6 @@
+Models & Quota
+Signed in as dev@example.com
+
+GEMINI MODELS
+Weekly: 50% remaining
+Refreshes in 100h
