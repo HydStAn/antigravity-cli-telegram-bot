@@ -34,6 +34,24 @@ export const PROMPT_DIRECTIVES = new Set([
   "grill-me",
 ]);
 
+interface MediaGroupItem {
+  context: AppContext;
+  sessionKey: string;
+  imagePath?: string;
+  documentPath?: string;
+  documentName?: string;
+  mediaPath?: string;
+  mediaType?: string;
+  caption?: string;
+}
+
+interface MediaGroupBuffer {
+  items: MediaGroupItem[];
+  timeout: NodeJS.Timeout;
+}
+
+const mediaGroupBuffers = new Map<string, MediaGroupBuffer>();
+
 export async function handleUpdate(context: AppContext, update: TelegramUpdate): Promise<void> {
   try {
     if (update.callback_query) { await handleCallback(context, update.callback_query); return; }
@@ -168,6 +186,75 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
         await reply(context, sessionKey, `Failed to download attachment: ${(err as Error).message}`, createMainKeyboard(settingsFor(context, sessionKey)));
         return;
       }
+    }
+
+    if (message.media_group_id) {
+      const mgId = `${sessionKey}:${message.media_group_id}`;
+      const flushMediaGroup = () => {
+        mediaGroupBuffers.delete(mgId);
+        const collected = group?.items || [];
+        if (collected.length === 0) return;
+
+        const allImagePaths: string[] = [];
+        const allDocPaths: string[] = [];
+        const allMediaPaths: string[] = [];
+        const captions: string[] = [];
+        let repContext: AppContext | undefined;
+        let repSessionKey = "";
+        const firstMedia = collected[0];
+
+        for (const item of collected) {
+          repContext = item.context;
+          repSessionKey = item.sessionKey;
+          if (item.imagePath) allImagePaths.push(item.imagePath);
+          if (item.documentPath) allDocPaths.push(item.documentPath);
+          if (item.mediaPath) allMediaPaths.push(item.mediaPath);
+          if (item.caption && !captions.includes(item.caption)) {
+            captions.push(item.caption);
+          }
+        }
+
+        if (!repContext) return;
+        const combinedCaption = captions.join("\n\n");
+        void repContext.telegram.sendChatAction(repSessionKey, "typing").catch(() => undefined);
+        enqueueJob(repContext, repSessionKey, {
+          prompt: combinedCaption,
+          kind: "prompt",
+          imagePath: allImagePaths[0],
+          imagePaths: allImagePaths,
+          documentPath: allDocPaths[0],
+          documentPaths: allDocPaths,
+          documentName: firstMedia.documentName,
+          mediaPath: allMediaPaths[0],
+          mediaPaths: allMediaPaths,
+          mediaType: firstMedia.mediaType,
+          wasVoiceInput: false,
+        });
+      };
+
+      let group = mediaGroupBuffers.get(mgId);
+      if (!group) {
+        group = {
+          items: [],
+          timeout: setTimeout(flushMediaGroup, 1500),
+        };
+        mediaGroupBuffers.set(mgId, group);
+      } else {
+        clearTimeout(group.timeout);
+        group.timeout = setTimeout(flushMediaGroup, 1500);
+      }
+
+      group.items.push({
+        context,
+        sessionKey,
+        imagePath,
+        documentPath,
+        documentName,
+        mediaPath,
+        mediaType,
+        caption: (message.caption || message.text || "").trim(),
+      });
+      return;
     }
 
     let extraContext: string | undefined;
