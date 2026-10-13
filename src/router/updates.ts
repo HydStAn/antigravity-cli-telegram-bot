@@ -43,6 +43,7 @@ interface MediaGroupItem {
   mediaPath?: string;
   mediaType?: string;
   caption?: string;
+  extraContext?: string;
 }
 
 interface MediaGroupBuffer {
@@ -188,75 +189,6 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       }
     }
 
-    if (message.media_group_id) {
-      const mgId = `${sessionKey}:${message.media_group_id}`;
-      const flushMediaGroup = () => {
-        mediaGroupBuffers.delete(mgId);
-        const collected = group?.items || [];
-        if (collected.length === 0) return;
-
-        const allImagePaths: string[] = [];
-        const allDocPaths: string[] = [];
-        const allMediaPaths: string[] = [];
-        const captions: string[] = [];
-        let repContext: AppContext | undefined;
-        let repSessionKey = "";
-        const firstMedia = collected[0];
-
-        for (const item of collected) {
-          repContext = item.context;
-          repSessionKey = item.sessionKey;
-          if (item.imagePath) allImagePaths.push(item.imagePath);
-          if (item.documentPath) allDocPaths.push(item.documentPath);
-          if (item.mediaPath) allMediaPaths.push(item.mediaPath);
-          if (item.caption && !captions.includes(item.caption)) {
-            captions.push(item.caption);
-          }
-        }
-
-        if (!repContext) return;
-        const combinedCaption = captions.join("\n\n");
-        void repContext.telegram.sendChatAction(repSessionKey, "typing").catch(() => undefined);
-        enqueueJob(repContext, repSessionKey, {
-          prompt: combinedCaption,
-          kind: "prompt",
-          imagePath: allImagePaths[0],
-          imagePaths: allImagePaths,
-          documentPath: allDocPaths[0],
-          documentPaths: allDocPaths,
-          documentName: firstMedia.documentName,
-          mediaPath: allMediaPaths[0],
-          mediaPaths: allMediaPaths,
-          mediaType: firstMedia.mediaType,
-          wasVoiceInput: false,
-        });
-      };
-
-      let group = mediaGroupBuffers.get(mgId);
-      if (!group) {
-        group = {
-          items: [],
-          timeout: setTimeout(flushMediaGroup, 1500),
-        };
-        mediaGroupBuffers.set(mgId, group);
-      } else {
-        clearTimeout(group.timeout);
-        group.timeout = setTimeout(flushMediaGroup, 1500);
-      }
-
-      group.items.push({
-        context,
-        sessionKey,
-        imagePath,
-        documentPath,
-        documentName,
-        mediaPath,
-        mediaType,
-        caption: (message.caption || message.text || "").trim(),
-      });
-      return;
-    }
-
     let extraContext: string | undefined;
 
     if (message.venue) {
@@ -296,6 +228,85 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
     } else if (repliedText) {
       const quoteBlock = `[Replied message / context]:\n"${repliedText}"`;
       extraContext = extraContext ? `${extraContext}\n\n${quoteBlock}` : quoteBlock;
+    }
+
+    if (message.media_group_id) {
+      const mgId = `${sessionKey}:${message.media_group_id}`;
+      const flushMediaGroup = () => {
+        mediaGroupBuffers.delete(mgId);
+        const collected = group?.items || [];
+        if (collected.length === 0) return;
+
+        const allImagePaths: string[] = [];
+        const allDocPaths: string[] = [];
+        const allMediaPaths: string[] = [];
+        const captions: string[] = [];
+        let repContext: AppContext | undefined;
+        let repSessionKey = "";
+        let groupExtraContext: string | undefined;
+        const firstMedia = collected[0];
+
+        for (const item of collected) {
+          repContext = item.context;
+          repSessionKey = item.sessionKey;
+          if (item.imagePath) allImagePaths.push(item.imagePath);
+          if (item.documentPath) allDocPaths.push(item.documentPath);
+          if (item.mediaPath) allMediaPaths.push(item.mediaPath);
+          if (item.caption && !captions.includes(item.caption)) {
+            captions.push(item.caption);
+          }
+          if (item.extraContext && !groupExtraContext) {
+            groupExtraContext = item.extraContext;
+          }
+        }
+
+        if (!repContext) return;
+        const combinedCaption = captions.join("\n\n");
+        let finalPrompt = combinedCaption;
+        if (groupExtraContext) {
+          finalPrompt = combinedCaption ? `${groupExtraContext}\n\n${combinedCaption}` : groupExtraContext;
+        }
+
+        void repContext.telegram.sendChatAction(repSessionKey, "typing").catch(() => undefined);
+        enqueueJob(repContext, repSessionKey, {
+          prompt: finalPrompt,
+          kind: "prompt",
+          imagePath: allImagePaths[0],
+          imagePaths: allImagePaths,
+          documentPath: allDocPaths[0],
+          documentPaths: allDocPaths,
+          documentName: firstMedia.documentName,
+          mediaPath: allMediaPaths[0],
+          mediaPaths: allMediaPaths,
+          mediaType: firstMedia.mediaType,
+          wasVoiceInput: false,
+        });
+      };
+
+      let group = mediaGroupBuffers.get(mgId);
+      if (!group) {
+        group = {
+          items: [],
+          timeout: setTimeout(flushMediaGroup, 1500),
+        };
+        mediaGroupBuffers.set(mgId, group);
+      } else {
+        clearTimeout(group.timeout);
+        group.timeout = setTimeout(flushMediaGroup, 1500);
+      }
+
+      group.items.push({
+        context,
+        sessionKey,
+        imagePath,
+        documentPath,
+        documentName,
+        mediaPath,
+        mediaType,
+        caption: (message.caption || message.text || "").trim(),
+        extraContext,
+      });
+      return;
     }
 
     let transcribedText = "";
@@ -382,6 +393,30 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       return;
     }
 
+    // 2. Reject unrecognized slash commands
+    let directive: string | undefined;
+    if (command.startsWith("/")) {
+      const candidate = command.slice(1);
+      if (PROMPT_DIRECTIVES.has(candidate)) {
+        directive = candidate;
+      } else {
+        await reply(context, sessionKey, "Unknown command. Use /menu.", createMainKeyboard(settingsFor(context, sessionKey)));
+        return;
+      }
+    }
+
+    // 3. Guard against contentless updates (e.g. stickers, reactions, unsupported updates)
+    const hasUserContent = Boolean(
+      rawText ||
+      imagePath ||
+      documentPath ||
+      mediaPath ||
+      message.location ||
+      message.venue ||
+      message.contact
+    );
+    if (!hasUserContent) return;
+
     let promptPrefix = "";
     if (attachmentMeta && mediaPath && !transcribedText) {
       promptPrefix = attachmentMeta.replace("%PATH%", mediaPath);
@@ -391,18 +426,17 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
     }
 
     let text = rawText;
-    if (promptPrefix) {
+    if (directive) {
+      const restText = rawText.slice(parts[0].length).trim();
+      if (promptPrefix) {
+        text = restText ? `/${directive} ${promptPrefix}\n\n${restText}` : `/${directive} ${promptPrefix}`;
+      } else {
+        text = rawText;
+      }
+    } else if (promptPrefix) {
       text = rawText ? `${promptPrefix}\n\n${rawText}` : promptPrefix;
     }
 
-    if (!text && !imagePath && !documentPath && !mediaPath) return;
-    if (text.startsWith("/")) {
-      const directive = command.startsWith("/") ? command.slice(1) : "";
-      if (!PROMPT_DIRECTIVES.has(directive)) {
-        await reply(context, sessionKey, "Unknown command. Use /menu.", createMainKeyboard(settingsFor(context, sessionKey)));
-        return;
-      }
-    }
     void context.telegram.sendChatAction(sessionKey, "typing").catch(() => undefined);
     enqueueJob(context, sessionKey, {
       prompt: text,

@@ -772,6 +772,73 @@ test("handleUpdate prepends quoted and replied message context to prompt", async
     } finally {
       harness3.cleanup();
     }
+    // 4. Unknown command typed as a reply should trigger unknown command notice and NOT enqueue prompt
+    const harness4 = createHarness();
+    const ctx4 = asAppContext(harness4);
+    try {
+      const updateUnknown = textUpdate(111, "/unknown_test_cmd");
+      updateUnknown.message!.reply_to_message = {
+        message_id: 1002,
+        chat: { id: 111, type: "private" },
+        text: "Some earlier assistant message",
+      };
+
+      await handleUpdate(ctx4, updateUnknown);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness4.capturedJobs.length, 0, "Unknown slash command on reply must not be enqueued as prompt");
+      assert.ok(
+        harness4.telegram.sentTexts().some((t) => t.includes("Unknown command. Use /menu.")),
+        "Must notify user about unknown command"
+      );
+    } finally {
+      harness4.cleanup();
+    }
+
+    // 5. Prompt directive (/plan) with quote must keep directive at leading position
+    const harness5 = createHarness();
+    const ctx5 = asAppContext(harness5);
+    try {
+      const updatePlan = textUpdate(111, "/plan Refactor network module");
+      updatePlan.message!.reply_to_message = {
+        message_id: 1003,
+        chat: { id: 111, type: "private" },
+        text: "Error: Connection timeout in fetchWithRetry",
+      };
+
+      await handleUpdate(ctx5, updatePlan);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness5.capturedJobs.length, 1);
+      const prompt = harness5.capturedJobs[0].prompt;
+      assert.ok(prompt.startsWith("/plan [Replied message / context]:"), "Directive must stay at leading position");
+      assert.ok(prompt.includes("Refactor network module"), "User text must be included");
+    } finally {
+      harness5.cleanup();
+    }
+
+    // 6. Textless update replying to earlier message (e.g. sticker or empty payload) must be ignored
+    const harness6 = createHarness();
+    const ctx6 = asAppContext(harness6);
+    try {
+      const updateEmpty = {
+        update_id: 9999,
+        message: {
+          message_id: 1004,
+          chat: { id: 111, type: "private" },
+          from: { id: 111 },
+          reply_to_message: {
+            message_id: 999,
+            chat: { id: 111, type: "private" },
+            text: "Watchdog Alert: High memory usage on beelink (92%)",
+          },
+        },
+      };
+
+      await handleUpdate(ctx6, updateEmpty);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness6.capturedJobs.length, 0, "Textless update on reply must NOT trigger job");
+    } finally {
+      harness6.cleanup();
+    }
   } finally {
     harness.cleanup();
   }

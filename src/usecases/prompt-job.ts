@@ -302,7 +302,12 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
     const latestSession = context.state.session(job.chatId);
     const lastRun = { model: result.model || settings.model, usage: result.usage, durationMs: result.durationMs, numTurns: result.numTurns, toolCalls: result.toolCalls, status: result.status || "SUCCESS", completedAt: new Date().toISOString() };
     const effectiveConvId = result.conversationId || session?.conversationId;
-    const initialTitle = (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60).trim() : "") || "Conversation";
+    const effectivePromptForTitle = (job.prompt || "")
+      .replace(/^\[(?:Quoted|Replied) message \/ context\]:[\s\S]*?(?:\n\n|$)/, "")
+      .trim();
+    const fallbackPromptForTitle = job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60).trim() : "";
+    const cleanPromptForTitle = effectivePromptForTitle ? effectivePromptForTitle.replace(/\s+/g, " ").slice(0, 60).trim() : fallbackPromptForTitle;
+    const initialTitle = cleanPromptForTitle || "Conversation";
     const convTitle = latestSession?.conversationTitle || initialTitle;
     const stepCount = (latestSession?.conversationStepCount || 0) + (result.numTurns || 1);
     const localPromptTokens = (result.usage?.cache_read_tokens ?? 0) + (result.usage?.input_tokens ?? 0);
