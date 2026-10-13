@@ -339,26 +339,15 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
     }
 
     const rawText = (transcribedText || message.text || message.caption || "").trim();
-    let promptPrefix = "";
-    if (attachmentMeta && mediaPath && !transcribedText) {
-      promptPrefix = attachmentMeta.replace("%PATH%", mediaPath);
-    }
-    if (extraContext) {
-      promptPrefix = promptPrefix ? `${promptPrefix}\n${extraContext}` : extraContext;
-    }
 
-    let text = rawText;
-    if (promptPrefix) {
-      text = rawText ? `${promptPrefix}\n\n${rawText}` : promptPrefix;
-    }
-
-    if (!text && !imagePath && !documentPath && !mediaPath) return;
-
-    const parts = text.split(/\s+/);
+    // 1. Fast-path check: Keyboard buttons and slash commands MUST be handled strictly
+    // without appending any quoted context or replied messages.
+    const parts = rawText.split(/\s+/);
     const command = parts[0] ? parts[0].toLowerCase().split("@")[0].replace(/_/g, "-") : "";
-    if (command === "/agy") { try { void runCustomAgy(context, sessionKey, parseCommandArgs(text.slice(parts[0].length))); } catch (error) { await reply(context, sessionKey, `Invalid /agy command: ${(error as Error).message}`, createMainKeyboard(settingsFor(context, sessionKey))); } return; }
+    if (command === "/agy") { try { void runCustomAgy(context, sessionKey, parseCommandArgs(rawText.slice(parts[0].length))); } catch (error) { await reply(context, sessionKey, `Invalid /agy command: ${(error as Error).message}`, createMainKeyboard(settingsFor(context, sessionKey))); } return; }
     if (command.startsWith("/") && await handleCommand(context, message, command, parts.slice(1))) return;
-    const buttonText = text;
+
+    const buttonText = rawText;
     if (buttonText === "✨ New session" || buttonText === "✨ New") {
       context.queue?.cancelForChat(sessionKey);
       defaultSubagentPoller.cancelPolling(sessionKey);
@@ -392,6 +381,21 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       enqueueJob(context, sessionKey, { kind: "usage" });
       return;
     }
+
+    let promptPrefix = "";
+    if (attachmentMeta && mediaPath && !transcribedText) {
+      promptPrefix = attachmentMeta.replace("%PATH%", mediaPath);
+    }
+    if (extraContext) {
+      promptPrefix = promptPrefix ? `${promptPrefix}\n${extraContext}` : extraContext;
+    }
+
+    let text = rawText;
+    if (promptPrefix) {
+      text = rawText ? `${promptPrefix}\n\n${rawText}` : promptPrefix;
+    }
+
+    if (!text && !imagePath && !documentPath && !mediaPath) return;
     if (text.startsWith("/")) {
       const directive = command.startsWith("/") ? command.slice(1) : "";
       if (!PROMPT_DIRECTIVES.has(directive)) {

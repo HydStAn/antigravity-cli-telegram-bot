@@ -750,6 +750,28 @@ test("handleUpdate prepends quoted and replied message context to prompt", async
     } finally {
       harness2.cleanup();
     }
+
+    // 3. System button "✨ New" with attached reply_to_message should reset session and NOT enqueue prompt
+    const harness3 = createHarness();
+    const ctx3 = asAppContext(harness3);
+    try {
+      const updateButton = textUpdate(111, "✨ New");
+      updateButton.message!.reply_to_message = {
+        message_id: 1001,
+        chat: { id: 111, type: "private" },
+        text: "⛔ Cancelled: 0 queued job(s) removed",
+      };
+
+      await handleUpdate(ctx3, updateButton);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness3.capturedJobs.length, 0, "System button must NOT be enqueued as a prompt");
+      assert.ok(
+        harness3.telegram.sentTexts().some((t) => t.includes("New AGY conversation started")),
+        "Must reset conversation and reply with session info"
+      );
+    } finally {
+      harness3.cleanup();
+    }
   } finally {
     harness.cleanup();
   }
