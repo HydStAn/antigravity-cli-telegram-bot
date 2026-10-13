@@ -285,6 +285,19 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       extraContext = `[Contact shared: ${fullName} (${c.phone_number})${vcardInfo}]`;
     }
 
+    // Extract quote / replied-to message context if user replies to or quotes an earlier message
+    const quotedSnippet = message.quote?.text?.trim();
+    const replyMsg = message.reply_to_message;
+    const repliedText = (replyMsg?.text || replyMsg?.caption || "").trim();
+
+    if (quotedSnippet) {
+      const quoteBlock = `[Quoted message / context]:\n"${quotedSnippet}"`;
+      extraContext = extraContext ? `${extraContext}\n\n${quoteBlock}` : quoteBlock;
+    } else if (repliedText) {
+      const quoteBlock = `[Replied message / context]:\n"${repliedText}"`;
+      extraContext = extraContext ? `${extraContext}\n\n${quoteBlock}` : quoteBlock;
+    }
+
     let transcribedText = "";
     if (isVoice && mediaPath) {
       const settings = settingsFor(context, sessionKey);

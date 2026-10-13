@@ -693,3 +693,64 @@ test("createAppServices wires queue cancellation to controller abortion", async 
     harness.cleanup();
   }
 });
+
+test("handleUpdate prepends quoted and replied message context to prompt", async () => {
+  const harness = createHarness();
+  const ctx = asAppContext(harness);
+  try {
+    // 1. Full reply_to_message
+    const updateWithReply = textUpdate(111, "Can you explain this error?");
+    updateWithReply.message!.reply_to_message = {
+      message_id: 999,
+      chat: { id: 111, type: "private" },
+      text: "Watchdog Alert: High memory usage on beelink (92%)",
+    };
+
+    await handleUpdate(ctx, updateWithReply);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(harness.capturedJobs.length, 1);
+    assert.ok(
+      harness.capturedJobs[0].prompt.includes('[Replied message / context]:\n"Watchdog Alert: High memory usage on beelink (92%)"'),
+      "Must include replied message text"
+    );
+    assert.ok(
+      harness.capturedJobs[0].prompt.includes("Can you explain this error?"),
+      "Must include user prompt text"
+    );
+
+    // 2. Specific telegram quote in a fresh harness to avoid auto-merging
+    const harness2 = createHarness();
+    const ctx2 = asAppContext(harness2);
+    try {
+      const updateWithQuote = textUpdate(111, "What does this number mean?");
+      updateWithQuote.message!.reply_to_message = {
+        message_id: 1000,
+        chat: { id: 111, type: "private" },
+        text: "Full long watchdog report with lots of lines...",
+      };
+      updateWithQuote.message!.quote = {
+        text: "memory usage on beelink (92%)",
+      };
+
+      await handleUpdate(ctx2, updateWithQuote);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness2.capturedJobs.length, 1);
+      assert.ok(
+        harness2.capturedJobs[0].prompt.includes('[Quoted message / context]:\n"memory usage on beelink (92%)"'),
+        "Must include quoted snippet text"
+      );
+      assert.ok(
+        !harness2.capturedJobs[0].prompt.includes("Full long watchdog report"),
+        "Quote takes precedence over full replied text when quote is present"
+      );
+      assert.ok(
+        harness2.capturedJobs[0].prompt.includes("What does this number mean?"),
+        "Must include user prompt text"
+      );
+    } finally {
+      harness2.cleanup();
+    }
+  } finally {
+    harness.cleanup();
+  }
+});

@@ -13,6 +13,11 @@ export interface TelegramAnimation { file_id: string; width: number; height: num
 export interface TelegramLocation { latitude: number; longitude: number; horizontal_accuracy?: number }
 export interface TelegramVenue { location: TelegramLocation; title: string; address: string; foursquare_id?: string; foursquare_type?: string }
 export interface TelegramContact { phone_number: string; first_name: string; last_name?: string; user_id?: number; vcard?: string }
+export interface TelegramTextQuote {
+  text: string;
+  position?: number;
+  is_manual?: boolean;
+}
 export interface TelegramMessage {
   message_id: number;
   message_thread_id?: number;
@@ -32,6 +37,8 @@ export interface TelegramMessage {
   location?: TelegramLocation;
   venue?: TelegramVenue;
   contact?: TelegramContact;
+  reply_to_message?: TelegramMessage;
+  quote?: TelegramTextQuote;
 }
 export interface TelegramCallbackQuery { id: string; from: TelegramUser; data?: string; message?: TelegramMessage }
 export interface TelegramUpdate { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery }
