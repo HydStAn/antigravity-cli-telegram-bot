@@ -693,3 +693,153 @@ test("createAppServices wires queue cancellation to controller abortion", async 
     harness.cleanup();
   }
 });
+
+test("handleUpdate prepends quoted and replied message context to prompt", async () => {
+  const harness = createHarness();
+  const ctx = asAppContext(harness);
+  try {
+    // 1. Full reply_to_message
+    const updateWithReply = textUpdate(111, "Can you explain this error?");
+    updateWithReply.message!.reply_to_message = {
+      message_id: 999,
+      chat: { id: 111, type: "private" },
+      text: "Watchdog Alert: High memory usage on beelink (92%)",
+    };
+
+    await handleUpdate(ctx, updateWithReply);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(harness.capturedJobs.length, 1);
+    assert.ok(
+      harness.capturedJobs[0].prompt.includes('[Replied message / context]:\n"Watchdog Alert: High memory usage on beelink (92%)"'),
+      "Must include replied message text"
+    );
+    assert.ok(
+      harness.capturedJobs[0].prompt.includes("Can you explain this error?"),
+      "Must include user prompt text"
+    );
+
+    // 2. Specific telegram quote in a fresh harness to avoid auto-merging
+    const harness2 = createHarness();
+    const ctx2 = asAppContext(harness2);
+    try {
+      const updateWithQuote = textUpdate(111, "What does this number mean?");
+      updateWithQuote.message!.reply_to_message = {
+        message_id: 1000,
+        chat: { id: 111, type: "private" },
+        text: "Full long watchdog report with lots of lines...",
+      };
+      updateWithQuote.message!.quote = {
+        text: "memory usage on beelink (92%)",
+      };
+
+      await handleUpdate(ctx2, updateWithQuote);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness2.capturedJobs.length, 1);
+      assert.ok(
+        harness2.capturedJobs[0].prompt.includes('[Quoted message / context]:\n"memory usage on beelink (92%)"'),
+        "Must include quoted snippet text"
+      );
+      assert.ok(
+        !harness2.capturedJobs[0].prompt.includes("Full long watchdog report"),
+        "Quote takes precedence over full replied text when quote is present"
+      );
+      assert.ok(
+        harness2.capturedJobs[0].prompt.includes("What does this number mean?"),
+        "Must include user prompt text"
+      );
+    } finally {
+      harness2.cleanup();
+    }
+
+    // 3. System button "✨ New" with attached reply_to_message should reset session and NOT enqueue prompt
+    const harness3 = createHarness();
+    const ctx3 = asAppContext(harness3);
+    try {
+      const updateButton = textUpdate(111, "✨ New");
+      updateButton.message!.reply_to_message = {
+        message_id: 1001,
+        chat: { id: 111, type: "private" },
+        text: "⛔ Cancelled: 0 queued job(s) removed",
+      };
+
+      await handleUpdate(ctx3, updateButton);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness3.capturedJobs.length, 0, "System button must NOT be enqueued as a prompt");
+      assert.ok(
+        harness3.telegram.sentTexts().some((t) => t.includes("New AGY conversation started")),
+        "Must reset conversation and reply with session info"
+      );
+    } finally {
+      harness3.cleanup();
+    }
+    // 4. Unknown command typed as a reply should trigger unknown command notice and NOT enqueue prompt
+    const harness4 = createHarness();
+    const ctx4 = asAppContext(harness4);
+    try {
+      const updateUnknown = textUpdate(111, "/unknown_test_cmd");
+      updateUnknown.message!.reply_to_message = {
+        message_id: 1002,
+        chat: { id: 111, type: "private" },
+        text: "Some earlier assistant message",
+      };
+
+      await handleUpdate(ctx4, updateUnknown);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness4.capturedJobs.length, 0, "Unknown slash command on reply must not be enqueued as prompt");
+      assert.ok(
+        harness4.telegram.sentTexts().some((t) => t.includes("Unknown command. Use /menu.")),
+        "Must notify user about unknown command"
+      );
+    } finally {
+      harness4.cleanup();
+    }
+
+    // 5. Prompt directive (/plan) with quote must keep directive at leading position
+    const harness5 = createHarness();
+    const ctx5 = asAppContext(harness5);
+    try {
+      const updatePlan = textUpdate(111, "/plan Refactor network module");
+      updatePlan.message!.reply_to_message = {
+        message_id: 1003,
+        chat: { id: 111, type: "private" },
+        text: "Error: Connection timeout in fetchWithRetry",
+      };
+
+      await handleUpdate(ctx5, updatePlan);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness5.capturedJobs.length, 1);
+      const prompt = harness5.capturedJobs[0].prompt;
+      assert.ok(prompt.startsWith("/plan [Replied message / context]:"), "Directive must stay at leading position");
+      assert.ok(prompt.includes("Refactor network module"), "User text must be included");
+    } finally {
+      harness5.cleanup();
+    }
+
+    // 6. Textless update replying to earlier message (e.g. sticker or empty payload) must be ignored
+    const harness6 = createHarness();
+    const ctx6 = asAppContext(harness6);
+    try {
+      const updateEmpty = {
+        update_id: 9999,
+        message: {
+          message_id: 1004,
+          chat: { id: 111, type: "private" },
+          from: { id: 111 },
+          reply_to_message: {
+            message_id: 999,
+            chat: { id: 111, type: "private" },
+            text: "Watchdog Alert: High memory usage on beelink (92%)",
+          },
+        },
+      };
+
+      await handleUpdate(ctx6, updateEmpty);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness6.capturedJobs.length, 0, "Textless update on reply must NOT trigger job");
+    } finally {
+      harness6.cleanup();
+    }
+  } finally {
+    harness.cleanup();
+  }
+});

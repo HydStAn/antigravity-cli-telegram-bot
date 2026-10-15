@@ -43,6 +43,7 @@ interface MediaGroupItem {
   mediaPath?: string;
   mediaType?: string;
   caption?: string;
+  extraContext?: string;
 }
 
 interface MediaGroupBuffer {
@@ -188,6 +189,47 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       }
     }
 
+    let extraContext: string | undefined;
+
+    if (message.venue) {
+      const v = message.venue;
+      const title = v.title ? `"${v.title}"` : "";
+      const addr = v.address ? `, ${v.address}` : "";
+      extraContext = `[Location shared: ${title}${addr} (Coordinates: ${v.location.latitude}, ${v.location.longitude})]`;
+    } else if (message.location) {
+      const loc = message.location;
+      const acc = loc.horizontal_accuracy ? ` | Accuracy: ${loc.horizontal_accuracy}m` : "";
+      extraContext = `[Location shared: Coordinates ${loc.latitude}, ${loc.longitude}${acc}]`;
+    } else if (message.contact) {
+      const c = message.contact;
+      const fullName = [c.first_name, c.last_name].filter(Boolean).join(" ");
+      let vcardInfo = "";
+      if (c.vcard) {
+        try {
+          const vcardName = `contact_${Date.now()}_${c.first_name.replace(/[^a-zA-Z0-9]/g, "_")}.vcf`;
+          const vcardPath = path.join(context.config.tempDir, vcardName);
+          await fs.writeFile(vcardPath, c.vcard, "utf-8");
+          vcardInfo = ` | vCard saved: ${vcardPath}`;
+        } catch {
+          // ignore vcard write failure
+        }
+      }
+      extraContext = `[Contact shared: ${fullName} (${c.phone_number})${vcardInfo}]`;
+    }
+
+    // Extract quote / replied-to message context if user replies to or quotes an earlier message
+    const quotedSnippet = message.quote?.text?.trim();
+    const replyMsg = message.reply_to_message;
+    const repliedText = (replyMsg?.text || replyMsg?.caption || "").trim();
+
+    if (quotedSnippet) {
+      const quoteBlock = `[Quoted message / context]:\n"${quotedSnippet}"`;
+      extraContext = extraContext ? `${extraContext}\n\n${quoteBlock}` : quoteBlock;
+    } else if (repliedText) {
+      const quoteBlock = `[Replied message / context]:\n"${repliedText}"`;
+      extraContext = extraContext ? `${extraContext}\n\n${quoteBlock}` : quoteBlock;
+    }
+
     if (message.media_group_id) {
       const mgId = `${sessionKey}:${message.media_group_id}`;
       const flushMediaGroup = () => {
@@ -201,6 +243,7 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
         const captions: string[] = [];
         let repContext: AppContext | undefined;
         let repSessionKey = "";
+        let groupExtraContext: string | undefined;
         const firstMedia = collected[0];
 
         for (const item of collected) {
@@ -212,13 +255,21 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
           if (item.caption && !captions.includes(item.caption)) {
             captions.push(item.caption);
           }
+          if (item.extraContext && !groupExtraContext) {
+            groupExtraContext = item.extraContext;
+          }
         }
 
         if (!repContext) return;
         const combinedCaption = captions.join("\n\n");
+        let finalPrompt = combinedCaption;
+        if (groupExtraContext) {
+          finalPrompt = combinedCaption ? `${groupExtraContext}\n\n${combinedCaption}` : groupExtraContext;
+        }
+
         void repContext.telegram.sendChatAction(repSessionKey, "typing").catch(() => undefined);
         enqueueJob(repContext, repSessionKey, {
-          prompt: combinedCaption,
+          prompt: finalPrompt,
           kind: "prompt",
           imagePath: allImagePaths[0],
           imagePaths: allImagePaths,
@@ -253,36 +304,9 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
         mediaPath,
         mediaType,
         caption: (message.caption || message.text || "").trim(),
+        extraContext,
       });
       return;
-    }
-
-    let extraContext: string | undefined;
-
-    if (message.venue) {
-      const v = message.venue;
-      const title = v.title ? `"${v.title}"` : "";
-      const addr = v.address ? `, ${v.address}` : "";
-      extraContext = `[Location shared: ${title}${addr} (Coordinates: ${v.location.latitude}, ${v.location.longitude})]`;
-    } else if (message.location) {
-      const loc = message.location;
-      const acc = loc.horizontal_accuracy ? ` | Accuracy: ${loc.horizontal_accuracy}m` : "";
-      extraContext = `[Location shared: Coordinates ${loc.latitude}, ${loc.longitude}${acc}]`;
-    } else if (message.contact) {
-      const c = message.contact;
-      const fullName = [c.first_name, c.last_name].filter(Boolean).join(" ");
-      let vcardInfo = "";
-      if (c.vcard) {
-        try {
-          const vcardName = `contact_${Date.now()}_${c.first_name.replace(/[^a-zA-Z0-9]/g, "_")}.vcf`;
-          const vcardPath = path.join(context.config.tempDir, vcardName);
-          await fs.writeFile(vcardPath, c.vcard, "utf-8");
-          vcardInfo = ` | vCard saved: ${vcardPath}`;
-        } catch {
-          // ignore vcard write failure
-        }
-      }
-      extraContext = `[Contact shared: ${fullName} (${c.phone_number})${vcardInfo}]`;
     }
 
     let transcribedText = "";
@@ -326,26 +350,15 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
     }
 
     const rawText = (transcribedText || message.text || message.caption || "").trim();
-    let promptPrefix = "";
-    if (attachmentMeta && mediaPath && !transcribedText) {
-      promptPrefix = attachmentMeta.replace("%PATH%", mediaPath);
-    }
-    if (extraContext) {
-      promptPrefix = promptPrefix ? `${promptPrefix}\n${extraContext}` : extraContext;
-    }
 
-    let text = rawText;
-    if (promptPrefix) {
-      text = rawText ? `${promptPrefix}\n\n${rawText}` : promptPrefix;
-    }
-
-    if (!text && !imagePath && !documentPath && !mediaPath) return;
-
-    const parts = text.split(/\s+/);
+    // 1. Fast-path check: Keyboard buttons and slash commands MUST be handled strictly
+    // without appending any quoted context or replied messages.
+    const parts = rawText.split(/\s+/);
     const command = parts[0] ? parts[0].toLowerCase().split("@")[0].replace(/_/g, "-") : "";
-    if (command === "/agy") { try { void runCustomAgy(context, sessionKey, parseCommandArgs(text.slice(parts[0].length))); } catch (error) { await reply(context, sessionKey, `Invalid /agy command: ${(error as Error).message}`, createMainKeyboard(settingsFor(context, sessionKey))); } return; }
+    if (command === "/agy") { try { void runCustomAgy(context, sessionKey, parseCommandArgs(rawText.slice(parts[0].length))); } catch (error) { await reply(context, sessionKey, `Invalid /agy command: ${(error as Error).message}`, createMainKeyboard(settingsFor(context, sessionKey))); } return; }
     if (command.startsWith("/") && await handleCommand(context, message, command, parts.slice(1))) return;
-    const buttonText = text;
+
+    const buttonText = rawText;
     if (buttonText === "✨ New session" || buttonText === "✨ New") {
       context.queue?.cancelForChat(sessionKey);
       defaultSubagentPoller.cancelPolling(sessionKey);
@@ -379,13 +392,51 @@ export async function handleUpdate(context: AppContext, update: TelegramUpdate):
       enqueueJob(context, sessionKey, { kind: "usage" });
       return;
     }
-    if (text.startsWith("/")) {
-      const directive = command.startsWith("/") ? command.slice(1) : "";
-      if (!PROMPT_DIRECTIVES.has(directive)) {
+
+    // 2. Reject unrecognized slash commands
+    let directive: string | undefined;
+    if (command.startsWith("/")) {
+      const candidate = command.slice(1);
+      if (PROMPT_DIRECTIVES.has(candidate)) {
+        directive = candidate;
+      } else {
         await reply(context, sessionKey, "Unknown command. Use /menu.", createMainKeyboard(settingsFor(context, sessionKey)));
         return;
       }
     }
+
+    // 3. Guard against contentless updates (e.g. stickers, reactions, unsupported updates)
+    const hasUserContent = Boolean(
+      rawText ||
+      imagePath ||
+      documentPath ||
+      mediaPath ||
+      message.location ||
+      message.venue ||
+      message.contact
+    );
+    if (!hasUserContent) return;
+
+    let promptPrefix = "";
+    if (attachmentMeta && mediaPath && !transcribedText) {
+      promptPrefix = attachmentMeta.replace("%PATH%", mediaPath);
+    }
+    if (extraContext) {
+      promptPrefix = promptPrefix ? `${promptPrefix}\n${extraContext}` : extraContext;
+    }
+
+    let text = rawText;
+    if (directive) {
+      const restText = rawText.slice(parts[0].length).trim();
+      if (promptPrefix) {
+        text = restText ? `/${directive} ${promptPrefix}\n\n${restText}` : `/${directive} ${promptPrefix}`;
+      } else {
+        text = rawText;
+      }
+    } else if (promptPrefix) {
+      text = rawText ? `${promptPrefix}\n\n${rawText}` : promptPrefix;
+    }
+
     void context.telegram.sendChatAction(sessionKey, "typing").catch(() => undefined);
     enqueueJob(context, sessionKey, {
       prompt: text,
