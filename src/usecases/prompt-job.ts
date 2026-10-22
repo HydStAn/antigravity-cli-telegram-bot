@@ -647,7 +647,6 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
     if (
       autoRenameEnabled &&
       target.messageThreadId &&
-      target.messageThreadId !== 1 &&
       !latestSession?.hasAutoRenamedTopic &&
       job.prompt &&
       result.text

@@ -54,7 +54,27 @@ test("resetForumTopicNameIfAutoRenamed calls editForumTopic with Topic <threadId
   await resetForumTopicNameIfAutoRenamed(mockContext, "-100123:6");
   assert.equal(editedName, null, "Should not edit topic if not auto-renamed");
 
-  // Case 3: Thread 1 (General topic) should not be reset
-  await resetForumTopicNameIfAutoRenamed(mockContext, "-100123:1");
-  assert.equal(editedName, null, "Should not edit thread 1");
+  // Case 3: Thread 1 (General topic) should reset to "General" if auto-renamed
+  const mockContextGen: any = {
+    telegram: {
+      editForumTopic: async (chatId: any, threadId: number, name: string) => {
+        editedChatId = chatId;
+        editedThreadId = threadId;
+        editedName = name;
+        return true;
+      },
+    },
+    state: {
+      session: (key: string) => {
+        if (key === "-100123:1") {
+          return { hasAutoRenamedTopic: true };
+        }
+        return null;
+      },
+    },
+  };
+  await resetForumTopicNameIfAutoRenamed(mockContextGen, "-100123:1");
+  assert.equal(editedChatId, -100123);
+  assert.equal(editedThreadId, 1);
+  assert.equal(editedName, "General");
 });

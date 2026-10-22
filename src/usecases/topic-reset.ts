@@ -9,9 +9,9 @@ export async function resetForumTopicNameIfAutoRenamed(
   const session = context.state.session(chatId);
   const target = parseChatTarget(chatId);
 
-  // If this topic was auto-renamed and has a thread ID > 1
-  if (session?.hasAutoRenamedTopic && target.messageThreadId && target.messageThreadId !== 1) {
-    const defaultTopicName = `Topic ${target.messageThreadId}`;
+  // If this topic was auto-renamed and has a thread ID
+  if (session?.hasAutoRenamedTopic && target.messageThreadId) {
+    const defaultTopicName = target.messageThreadId === 1 ? "General" : `Topic ${target.messageThreadId}`;
     try {
       await context.telegram.editForumTopic(target.chatId, target.messageThreadId, defaultTopicName);
     } catch (error) {
