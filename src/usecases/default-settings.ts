@@ -33,6 +33,7 @@ export async function persistDefaultSettings(context: AppContext, chatId: ChatId
       ...(settings.sttLang ? { STT_LANGUAGE: settings.sttLang } : {}),
       ...(settings.ttsMode ? { TTS_MODE: settings.ttsMode } : {}),
       ...(settings.ttsVoice ? { TTS_VOICE: settings.ttsVoice } : {}),
+      ...(settings.autoTopicRename !== undefined ? { TELEGRAM_AUTO_TOPIC_RENAME: settings.autoTopicRename ? "1" : "0" } : {}),
     };
     const updatedLines = [...lines];
     for (const [key, val] of Object.entries(newVars)) {
@@ -62,6 +63,9 @@ export async function persistDefaultSettings(context: AppContext, chatId: ChatId
     if (context.config.tts) {
       if (settings.ttsMode) context.config.tts.mode = settings.ttsMode;
       if (settings.ttsVoice) context.config.tts.voice = settings.ttsVoice;
+    }
+    if (settings.autoTopicRename !== undefined) {
+      context.config.telegram.autoTopicRename = settings.autoTopicRename;
     }
 
     const ttsLine = settings.ttsMode ? `\n• <b>TTS:</b> ${escapeHtml(settings.ttsMode)} (${escapeHtml(settings.ttsVoice || "default")})` : "";

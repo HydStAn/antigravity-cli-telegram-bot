@@ -22,6 +22,7 @@ import { persistDefaultSettings } from "../usecases/default-settings.js";
 import { updateBot } from "../usecases/self-update.js";
 import { selectModel } from "../usecases/model-selection.js";
 import { cleanupSessionTempFiles } from "../usecases/session-cleanup.js";
+import { resetForumTopicNameIfAutoRenamed } from "../usecases/topic-reset.js";
 import type { TelegramCallbackQuery } from "../types.js";
 import { isWhisperInstalled, warmupWhisperLocal } from "../stt/stt-service.js";
 import { authorizedCallback } from "./auth.js";
@@ -80,6 +81,7 @@ export async function handleCallback(context: AppContext, callback: TelegramCall
     case "new-session": {
       context.queue?.cancelForChat(chatId);
       await cleanupSessionTempFiles(context.config.tempDir, chatId);
+      await resetForumTopicNameIfAutoRenamed(context, chatId);
       const isTopic = Boolean(callback.message?.message_thread_id) || String(chatId).includes(":");
       await context.state.resetSession(chatId, true, isTopic);
       await context.telegram.editMessageText(chatId, messageId, sessionInfoHtml(context, chatId), { inline_keyboard: [[button("‹ Back to Menu", "menu:main")]] }, "HTML");

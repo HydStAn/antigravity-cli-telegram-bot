@@ -40,6 +40,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       allowBotUpdate: booleanFrom(env, "ALLOW_BOT_UPDATE", booleanFrom(env, "TELEGRAM_ALLOW_BOT_UPDATE", false)),
       autoInterrupt: booleanFrom(env, "TELEGRAM_AUTO_INTERRUPT", false),
       telemetryPostPrompt: telemetryPostPromptFrom(env),
+      autoTopicRename: booleanFrom(env, "TELEGRAM_AUTO_TOPIC_RENAME", false),
     },
     agy: {
       bin: (env.AGY_BIN || "/root/.local/bin/agy").trim(), workspace, project: (env.AGY_PROJECT || "").trim(), mode,

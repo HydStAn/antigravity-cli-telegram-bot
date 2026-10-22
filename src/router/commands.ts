@@ -29,6 +29,7 @@ import { scheduleServiceRestart, updateBot, writeRestartNotice } from "../usecas
 import { resolveWorkspacePath } from "../domain/workspace.js";
 import { handleDiffCommand } from "../usecases/diff-command.js";
 import { handleTitleCommand } from "../usecases/title-command.js";
+import { resetForumTopicNameIfAutoRenamed } from "../usecases/topic-reset.js";
 import { handleSkillsCommand } from "../usecases/skills-command.js";
 import { handleMcpCommand } from "../usecases/mcp-command.js";
 import { escapeHtml } from "../telegram.js";
@@ -68,6 +69,7 @@ command("/help")(async ({ context, chatId }) => {
 command("/new")(async ({ context, chatId, message }) => {
   context.queue?.cancelForChat(chatId);
   await cleanupSessionTempFiles(context.config.tempDir, chatId);
+  await resetForumTopicNameIfAutoRenamed(context, chatId);
   const isTopic = Boolean(message?.message_thread_id) || String(chatId).includes(":");
   await context.state.resetSession(chatId, true, isTopic);
   await replyWithHtml(context, chatId, sessionInfoHtml(context, chatId), createMainKeyboard(settingsFor(context, chatId)));
@@ -579,6 +581,30 @@ command("/compact")(async ({ context, chatId, args }) => {
     kind: "compact",
     prompt: args.length > 0 ? args.join(" ") : undefined,
   });
+});
+
+command("/autotopic", "/auto_topic", "/autotopicrename")(async ({ context, chatId, args }) => {
+  const settings = settingsFor(context, chatId);
+  const target = args[0]?.toLowerCase();
+  if (target === "on" || target === "1" || target === "true" || target === "enable") {
+    settings.autoTopicRename = true;
+    await saveSettings(context, chatId, settings);
+    await replyWithHtml(context, chatId, "🏷️ <b>Auto Topic Rename enabled</b> for this chat/topic.\n\nAfter turn 1, the topic will be automatically named with a concise 1-emoji label.", createMainKeyboard(settings));
+    return;
+  }
+  if (target === "off" || target === "0" || target === "false" || target === "disable") {
+    settings.autoTopicRename = false;
+    await saveSettings(context, chatId, settings);
+    await replyWithHtml(context, chatId, "🏷️ <b>Auto Topic Rename disabled</b> for this chat/topic.\n\nTopics will not be automatically renamed.", createMainKeyboard(settings));
+    return;
+  }
+  const currentStatus = settings.autoTopicRename ? "enabled" : "disabled";
+  await replyWithHtml(
+    context,
+    chatId,
+    `🏷️ <b>Auto Topic Rename is currently ${currentStatus}</b>.\n\nUse <code>/autotopic on</code> or <code>/autotopic off</code> to toggle.`,
+    createMainKeyboard(settings)
+  );
 });
 
 command("/diff")(async ({ context, chatId }) => {
