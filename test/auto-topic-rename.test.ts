@@ -56,6 +56,11 @@ test("resetForumTopicNameIfAutoRenamed calls editForumTopic with Topic <threadId
 
   // Case 3: Thread 1 (General topic) should reset to "General" if auto-renamed
   const mockContextGen: any = {
+    config: {
+      telegram: {
+        enableTopics: true,
+      },
+    },
     telegram: {
       editForumTopic: async (chatId: any, threadId: number, name: string) => {
         editedChatId = chatId;
@@ -66,7 +71,7 @@ test("resetForumTopicNameIfAutoRenamed calls editForumTopic with Topic <threadId
     },
     state: {
       session: (key: string) => {
-        if (key === "-100123:1") {
+        if (key === "-100123:1" || key === "-100123") {
           return { hasAutoRenamedTopic: true };
         }
         return null;
@@ -75,6 +80,15 @@ test("resetForumTopicNameIfAutoRenamed calls editForumTopic with Topic <threadId
   };
   await resetForumTopicNameIfAutoRenamed(mockContextGen, "-100123:1");
   assert.equal(editedChatId, -100123);
+  assert.equal(editedThreadId, 1);
+  assert.equal(editedName, "General");
+
+  // Case 4: General topic session without :1 suffix when enableTopics is true
+  editedChatId = null;
+  editedThreadId = null;
+  editedName = null;
+  await resetForumTopicNameIfAutoRenamed(mockContextGen, "-100123");
+  assert.equal(String(editedChatId), "-100123");
   assert.equal(editedThreadId, 1);
   assert.equal(editedName, "General");
 });

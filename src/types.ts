@@ -191,6 +191,7 @@ export interface AppConfig {
     autoInterrupt: boolean;
     telemetryPostPrompt: TelemetryPostPromptMode;
     autoTopicRename: boolean;
+    enableTopics: boolean;
   };
   agy: AgyConfig;
   stt: {

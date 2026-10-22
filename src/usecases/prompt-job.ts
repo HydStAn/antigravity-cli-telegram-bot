@@ -644,9 +644,10 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
     // Auto-rename topic after Turn 1 if enabled
     const autoRenameEnabled = settings.autoTopicRename ?? context.config.telegram.autoTopicRename ?? false;
     const target = parseChatTarget(job.chatId);
+    const effectiveThreadId = target.messageThreadId ?? (context.config.telegram.enableTopics ? 1 : undefined);
     if (
       autoRenameEnabled &&
-      target.messageThreadId &&
+      effectiveThreadId !== undefined &&
       !latestSession?.hasAutoRenamedTopic &&
       job.prompt &&
       result.text
@@ -666,8 +667,8 @@ export async function runPromptJob(context: AppContext, job: QueueJob, isCancell
             job.prompt || "",
             result.text || ""
           );
-          if (shortName && target.messageThreadId) {
-            await context.telegram.editForumTopic(target.chatId, target.messageThreadId, shortName);
+          if (shortName) {
+            await context.telegram.editForumTopic(target.chatId, effectiveThreadId, shortName);
           }
         } catch (renameErr) {
           console.debug(`[AutoTopicRename] Failed to rename topic: ${(renameErr as Error).message}`);
