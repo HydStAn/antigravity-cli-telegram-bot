@@ -87,10 +87,12 @@ export async function generateTopicShortName(
     "stream-json",
     "--model",
     model,
-    "--effort",
-    "low",
     "--disable-slash-commands",
   ];
+
+  if (!/-(low|medium|high)$/.test(model)) {
+    args.push("--effort", "low");
+  }
 
   if (config.agy.allowDangerouslySkipPermissions) {
     args.push("--dangerously-skip-permissions");
@@ -110,7 +112,7 @@ export async function generateTopicShortName(
         // ignore
       }
       resolve(null);
-    }, 15_000);
+    }, 30_000);
 
     proc.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
